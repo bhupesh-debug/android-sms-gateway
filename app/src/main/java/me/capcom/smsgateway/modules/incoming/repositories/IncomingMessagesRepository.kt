@@ -11,6 +11,9 @@ class IncomingMessagesRepository(private val dao: IncomingMessagesDao) {
     fun selectLast(limit: Int): LiveData<List<IncomingMessage>> =
         dao.selectLast(limit).distinctUntilChanged()
 
+    fun selectLast(limit: Int, type: IncomingMessageType? = null): LiveData<List<IncomingMessage>> =
+        dao.selectLastFiltered(limit, type?.name).distinctUntilChanged()
+
     suspend fun count(type: IncomingMessageType?, from: Long, to: Long): Int =
         dao.count(type, from, to)
 
@@ -30,5 +33,5 @@ class IncomingMessagesRepository(private val dao: IncomingMessagesDao) {
     fun insert(message: IncomingMessage) = dao.insert(message)
 
     fun delete(from: Long, to: Long, types: Set<IncomingMessageType>) = dao.delete(from, to, types)
-    fun truncate(until: Long) = dao.truncate(until)
+    suspend fun truncate(until: Long) = dao.truncate(until)
 }

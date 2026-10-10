@@ -5,6 +5,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
 import android.os.Build
 import android.os.Bundle
 import android.text.Html
@@ -63,8 +64,7 @@ class HomeFragment : Fragment() {
         super.onCreate(savedInstanceState)
 
         setFragmentResultListener(FirstStartDialogFragment.REQUEST_KEY) { _, data ->
-            val result = FirstStartDialogFragment.getResult(data)
-            when (result) {
+            when (FirstStartDialogFragment.getResult(data)) {
                 FirstStartDialogFragment.Result.Canceled -> {
                     Toast.makeText(
                         requireContext(),
@@ -72,7 +72,6 @@ class HomeFragment : Fragment() {
                         Toast.LENGTH_SHORT
                     )
                         .show()
-                    binding.buttonStart.isChecked = false
                     return@setFragmentResultListener
                 }
 
@@ -164,7 +163,8 @@ class HomeFragment : Fragment() {
         }
 
         binding.buttonStart.setOnClickListener {
-            actionStart(binding.buttonStart.isChecked)
+            val isRunning = stateLiveData.value ?: false
+            actionStart(!isRunning)
         }
 
 //        if (settingsHelper.autostart) {
@@ -253,7 +253,7 @@ class HomeFragment : Fragment() {
                         )
                     )
 
-                } ?: getString(R.string.settings_local_address_not_found)
+                } ?: getString(R.string.not_available)
 
                 binding.textPublicIP.text = event.publicIP?.let {
                     makeCopyableLink(
@@ -265,7 +265,7 @@ class HomeFragment : Fragment() {
                             )
                         )
                     )
-                } ?: getString(R.string.settings_public_address_not_found)
+                } ?: getString(R.string.not_available)
 
                 // Set Local Server Device ID
                 binding.textLocalDeviceId.text = localServerSettings.deviceId?.let {
@@ -278,8 +278,19 @@ class HomeFragment : Fragment() {
             }
         }
 
-        stateLiveData.observe(viewLifecycleOwner) {
-            binding.buttonStart.isChecked = it
+        stateLiveData.observe(viewLifecycleOwner) { isRunning ->
+            binding.buttonStart.apply {
+                text = getString(
+                    if (isRunning) R.string.button_stop_service
+                    else R.string.button_start_service
+                )
+                backgroundTintList = ColorStateList.valueOf(
+                    ContextCompat.getColor(
+                        requireContext(),
+                        if (isRunning) R.color.red_800 else R.color.grey_700
+                    )
+                )
+            }
         }
 
         connectionService.status.observe(viewLifecycleOwner) {
@@ -369,7 +380,9 @@ class HomeFragment : Fragment() {
                 Manifest.permission.RECEIVE_SMS,
                 Manifest.permission.SEND_SMS,
                 Manifest.permission.RECEIVE_MMS,
+                Manifest.permission.READ_PHONE_NUMBERS.takeIf { Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU },
             )
+                .filterNotNull()
                 .filter {
                     ContextCompat.checkSelfPermission(
                         requireContext(),
@@ -435,6 +448,7 @@ class HomeFragment : Fragment() {
             }
         }
     }
+
     override fun onDestroyView() {
         super.onDestroyView()
         _binding = null

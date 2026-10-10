@@ -4,17 +4,21 @@ import android.util.Log
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import me.capcom.smsgateway.domain.EntitySource
+import me.capcom.smsgateway.modules.device.events.DeviceKeyRotatedEvent
 import me.capcom.smsgateway.modules.events.EventBus
 import me.capcom.smsgateway.modules.events.EventsReceiver
 import me.capcom.smsgateway.modules.gateway.events.DeviceRegisteredEvent
+import me.capcom.smsgateway.modules.gateway.events.MessageCancelledEvent
 import me.capcom.smsgateway.modules.gateway.events.MessageEnqueuedEvent
 import me.capcom.smsgateway.modules.gateway.events.SettingsUpdatedEvent
 import me.capcom.smsgateway.modules.gateway.events.WebhooksUpdatedEvent
 import me.capcom.smsgateway.modules.gateway.services.SSEForegroundService
 import me.capcom.smsgateway.modules.gateway.workers.PullMessagesWorker
+import me.capcom.smsgateway.modules.gateway.workers.RegistrationWorker
 import me.capcom.smsgateway.modules.gateway.workers.SendStateWorker
 import me.capcom.smsgateway.modules.gateway.workers.SettingsUpdateWorker
 import me.capcom.smsgateway.modules.gateway.workers.WebhooksUpdateWorker
+import me.capcom.smsgateway.modules.messages.MessagesService
 import me.capcom.smsgateway.modules.messages.events.MessageStateChangedEvent
 import me.capcom.smsgateway.modules.ping.events.PingEvent
 import org.koin.core.component.get
@@ -91,6 +95,34 @@ class EventsReceiver : EventsReceiver() {
                     if (settings.fcmToken != null) return@collect
 
                     SSEForegroundService.start(get())
+                }
+            }
+
+            launch {
+                Log.d("EventsReceiver", "launched MessageCancelledEvent")
+                eventBus.collect<MessageCancelledEvent> { event ->
+                    Log.d("EventsReceiver", "Event: $event")
+
+                    if (!settings.enabled) return@collect
+
+                    try {
+                        get<MessagesService>().cancelMessage(event.messageId)
+                    } catch (_: IllegalArgumentException) {
+                        // message not found locally — nothing to cancel
+                    } catch (_: IllegalStateException) {
+                        // message not in Pending state — already sent/cancelled
+                    }
+                }
+            }
+
+            launch {
+                Log.d("EventsReceiver", "launched DeviceKeyRotatedEvent")
+                eventBus.collect<DeviceKeyRotatedEvent> {
+                    Log.d("EventsReceiver", "Event: $it")
+
+                    if (!settings.enabled) return@collect
+
+                    RegistrationWorker.start(get(), settings.fcmToken, true)
                 }
             }
         }

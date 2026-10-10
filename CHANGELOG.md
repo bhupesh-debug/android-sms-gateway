@@ -7,11 +7,140 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+### Changed
+- Sending a message with duplicate phone numbers is now rejected — the `phoneNumbers` list must contain unique values [9450b93]
+
+## [v1.77.1] - 2026-10-01
 
 ### Changed
+- `createdAt` timestamps are now included in the local server messages and device responses [3d6578a]
+
+## [v1.77.0] - 2026-09-29
+
+### Added
+- Device key operations — the app generates a key pair, uploads the public key to the cloud server, and the local server exposes `publicKey` and `keyVersion` on device registration [e37b313] [3b09cca]
+
+### Changed
+- Hybrid encryption — message content and phone numbers are encrypted with the device public key [8d78869]
+- Refreshed settings icons [68bff54]
+
+### Documentation
+- Update Swagger and docs [d303329]
+
+## [v1.76.0] - 2026-09-25
+
+### Added
+- Received messages (SMS, Data SMS, and MMS) are automatically uploaded to the cloud server when the app is connected to it, for centralized access [42a6957]
+
+### Changed
+- End-to-end encryption of message content and phone numbers now uses a hardened format with a random salt and IV per encrypted value; values encrypted with the previous format remain readable [7d1e9ed]
+
+### Documentation
+- Update Swagger, README, and changelog; add `.env.example` with build signing configuration [1b5a706]
+
+## [v1.75.1] - 2026-09-08
+
+### Changed
+- Improve SMS delivery status parsing — supports CDMA (3GPP2) format and masks status bits for more accurate sent/delivered/failed reporting [f7ad73b]
+
+## [v1.75.0] - 2026-09-04
+
+### Added
+- Webhook queue diagnostic list screen in settings to inspect pending webhook deliveries [3ce3514]
+
+### Changed
+- Update strings [956f9d6]
+
+## [v1.74.1] - 2026-09-02
+
+### Changed
+- New immediate messages are now sent right away instead of waiting for the scheduled worker [b179de8]
+
+## [v1.74.0] - 2026-08-31
+
+### Added
+- Send MMS messages via the API — include one or more attachments in the `mmsMessage` field with an optional subject and text [1b6c76b]
+
+### Changed
+- Support legacy date formats when parsing received messages [c90101d]
+
+## [v1.73.0] - 2026-08-27
+
+### Added
+- Filter messages in the list by state and type [71bf8415]
+
+### Changed
+- Update translations [f4f1ea50]
+
+## [v1.72.1] - 2026-08-25
+
+### Changed
+- Resolve SIM phone numbers using the modern subscription API on Android 13+ with `READ_PHONE_NUMBERS` permission support [06574387]
+
+## [v1.72.0] - 2026-08-21
+
+### Added
+- `sort` parameter for the messages list local server endpoint [9f657545]
+
+## [v1.71.1] - 2026-08-20
+
+### Changed
+- Schedule webhook deliveries instead of polling for faster dispatch [e4acf420]
+
+## [v1.71.0] - 2026-08-18
+
+### Added
+- Batch webhook events — `sms:batch:received`, `sms:batch:data-received`, `mms:batch:received`, and `mms:batch:downloaded` deliver multiple events in a single request [05351ce]
+
+## [v1.70.4] - 2026-08-14
 
 ### Fixed
+- Message queue no longer gets stuck when there is a scheduled message [5e1def46]
+
+## [v1.70.3] - 2026-08-11
+
+### Changed
+- Process sent/delivered broadcasts asynchronously so message status updates aren't dropped [b08ebe6]
+
+## [v1.70.2] - 2026-08-08
+
+### Changed
+- Improve start/stop button [89c5635]
+
+## [v1.70.1] - 2026-08-06
+
+### Fixed
+- Sent message status updates no longer dropped when the broadcast is missing a URI extra [1575024]
+
+## [v1.70.0] - 2026-08-05
+
+### Changed
+- Periodically clean up incoming messages [697ec79]
+
+## [v1.69.0] - 2026-08-03
+
+### Added
+- Work hours support for outgoing messages [4bb53ab]
+
+## [v1.68.0] - 2026-07-14
+
+### Added
+- Incoming MMS attachments support [0cdc5d8]
+
+### Changed
+- Delay MMS parsing until download completes [90d16d9]
+
+## [v1.67.0] - 2026-07-08
+
+### Added
+- `sms:cancelled` webhook event [cd6c30a]
+- Ability to cancel pending messages [3820815]
+- Per 30 minutes sending limit option [11580ad]
+- SMS Receiver settings section with Content Provider Monitoring toggle to disable fallback content observer [d682d6f]
+
+### Fixed
+- Duplicate SMS detection when a message arrives via both broadcast receiver and content observer — use `DATE_SENT` instead of `DATE` in both paths so timestamps match consistently [89bf4f5]
+- Export (`POST /messages/inbox/export`) no longer produces duplicates of messages already received via broadcast [64ce33b]
 
 ## [v1.66.1] - 2026-06-24
 
@@ -1111,7 +1240,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SDK version check for SmsManager compatibility [4b7e593]
 
 
-[Unreleased]: https://github.com/capcom6/android-sms-gateway/compare/v1.66.1...HEAD
+[Unreleased]: https://github.com/capcom6/android-sms-gateway/compare/v1.77.1...HEAD
 [v1.0.0]: https://github.com/capcom6/android-sms-gateway/releases/tag/v1.0.0
 [v1.1.0]: https://github.com/capcom6/android-sms-gateway/compare/v1.0.0...v1.1.0
 [v1.1.1]: https://github.com/capcom6/android-sms-gateway/compare/v1.1.0...v1.1.1
@@ -1235,3 +1364,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [v1.65.3]: https://github.com/capcom6/android-sms-gateway/compare/v1.65.2...v1.65.3
 [v1.66.0]: https://github.com/capcom6/android-sms-gateway/compare/v1.65.3...v1.66.0
 [v1.66.1]: https://github.com/capcom6/android-sms-gateway/compare/v1.66.0...v1.66.1
+[v1.70.4]: https://github.com/capcom6/android-sms-gateway/compare/v1.70.3...v1.70.4
+[v1.71.0]: https://github.com/capcom6/android-sms-gateway/compare/v1.70.4...v1.71.0
+[v1.71.1]: https://github.com/capcom6/android-sms-gateway/compare/v1.71.0...v1.71.1
+[v1.72.0]: https://github.com/capcom6/android-sms-gateway/compare/v1.71.1...v1.72.0
+[v1.72.1]: https://github.com/capcom6/android-sms-gateway/compare/v1.72.0...v1.72.1
+[v1.73.0]: https://github.com/capcom6/android-sms-gateway/compare/v1.72.1...v1.73.0
+[v1.74.0]: https://github.com/capcom6/android-sms-gateway/compare/v1.73.0...v1.74.0
+[v1.74.1]: https://github.com/capcom6/android-sms-gateway/compare/v1.74.0...v1.74.1
+[v1.75.0]: https://github.com/capcom6/android-sms-gateway/compare/v1.74.1...v1.75.0
+[v1.75.1]: https://github.com/capcom6/android-sms-gateway/compare/v1.75.0...v1.75.1
+[v1.76.0]: https://github.com/capcom6/android-sms-gateway/compare/v1.75.1...v1.76.0
+[v1.77.0]: https://github.com/capcom6/android-sms-gateway/compare/v1.76.0...v1.77.0
+[v1.77.1]: https://github.com/capcom6/android-sms-gateway/compare/v1.77.0...v1.77.1

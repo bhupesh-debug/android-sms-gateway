@@ -1,6 +1,10 @@
 package me.capcom.smsgateway.modules.webhooks.db
 
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.distinctUntilChanged
 import com.aventrix.jnanoid.jnanoid.NanoIdUtils
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import me.capcom.smsgateway.modules.webhooks.WebhookPayloadStorage
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
@@ -13,6 +17,22 @@ class WebhookQueueRepository(
     private val dao: WebhookQueueDao,
 ) : KoinComponent {
     private val payloadStorage: WebhookPayloadStorage by inject()
+
+    /**
+     * The most recent webhook queue entries, optionally filtered by status at the SQL level.
+     * Bounded by limit; distinct repeated emissions.
+     */
+    fun selectLast(limit: Int, status: WebhookStatus? = null) =
+        dao.selectLastFiltered(limit, status?.value).distinctUntilChanged()
+
+    /**
+     * Get queue statistics summary. Full-table aggregate, runs off the main thread.
+     */
+    suspend fun getQueueStatistics(): WebhookQueueStatistics {
+        return withContext(Dispatchers.IO) {
+            dao.getQueueStatistics()
+        }
+    }
 
     /**
      * Enqueue a new webhook event for processing.
@@ -34,7 +54,7 @@ class WebhookQueueRepository(
                     createdAt = System.currentTimeMillis(),
                     nextAttempt = System.currentTimeMillis()
                 )
-             )
+            )
         } catch (e: Exception) {
             payloadStorage.delete(id)
             throw e
@@ -44,10 +64,17 @@ class WebhookQueueRepository(
     }
 
     /**
-     * Check if there are any scheduled webhook events.
+     * Check if there are any webhook events due now.
      */
-    suspend fun hasScheduledWebhooks(): Boolean {
-        return dao.scheduledWebhooksCount() > 0
+    suspend fun hasDueWebhooks(): Boolean {
+        return dao.dueWebhooksCount(System.currentTimeMillis()) > 0
+    }
+
+    /**
+     * Get the minimum next_attempt time for all pending/failed webhooks.
+     */
+    suspend fun getNextAttemptTime(): Long? {
+        return dao.getNextAttemptTime()
     }
 
     /**

@@ -21,6 +21,9 @@ class MessagesRepository(private val dao: MessagesDao) {
 
     fun selectLast(limit: Int) = dao.selectLast(limit).distinctUntilChanged()
 
+    fun selectLast(limit: Int, state: ProcessingState? = null) =
+        dao.selectLastFiltered(limit, state?.name).distinctUntilChanged()
+
     val messagesTotals: LiveData<MessagesTotals> = dao.getMessagesStats().distinctUntilChanged()
 
     fun get(id: String): StoredSendRequest {
@@ -95,6 +98,11 @@ class MessagesRepository(private val dao: MessagesDao) {
                     MessageType.Data -> gson.fromJson(
                         message.message.content,
                         MessageContent.Data::class.java
+                    )
+
+                    MessageType.Mms -> gson.fromJson(
+                        message.message.content,
+                        MessageContent.Mms::class.java
                     )
                 },
                 phoneNumbers = message.recipients.filter { it.state == ProcessingState.Pending }

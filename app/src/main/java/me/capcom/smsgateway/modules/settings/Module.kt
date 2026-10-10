@@ -2,12 +2,15 @@ package me.capcom.smsgateway.modules.settings
 
 import androidx.preference.PreferenceManager
 import me.capcom.smsgateway.helpers.SettingsHelper
+import me.capcom.smsgateway.modules.device.DeviceSettings
 import me.capcom.smsgateway.modules.encryption.EncryptionSettings
 import me.capcom.smsgateway.modules.gateway.GatewaySettings
+import me.capcom.smsgateway.modules.incoming.IncomingMessagesSettings
 import me.capcom.smsgateway.modules.localserver.LocalServerSettings
 import me.capcom.smsgateway.modules.logs.LogsSettings
 import me.capcom.smsgateway.modules.messages.MessagesSettings
 import me.capcom.smsgateway.modules.ping.PingSettings
+import me.capcom.smsgateway.modules.receiver.ReceiverSettings
 import me.capcom.smsgateway.modules.receiver.StateStorage
 import me.capcom.smsgateway.modules.webhooks.TemporaryStorage
 import me.capcom.smsgateway.modules.webhooks.WebhooksSettings
@@ -46,6 +49,11 @@ val settingsModule = module {
         )
     }
     factory {
+        IncomingMessagesSettings(
+            PreferencesStorage(get(), "incoming")
+        )
+    }
+    factory {
         LogsSettings(
             PreferencesStorage(get(), "logs")
         )
@@ -55,6 +63,17 @@ val settingsModule = module {
             PreferencesStorage(get(), "webhooks")
         )
     }
+    factory {
+        ReceiverSettings(
+            PreferencesStorage(get(), "receiver")
+        )
+    }
+    factory {
+        DeviceSettings(
+            PreferencesStorage(get(), "device")
+        )
+    }
+    //
     single {
         TemporaryStorage(
             PreferencesStorage(get(), "webhooks")

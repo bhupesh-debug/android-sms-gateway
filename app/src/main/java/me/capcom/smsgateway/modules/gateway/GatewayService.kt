@@ -4,12 +4,15 @@ import android.content.Context
 import android.os.Build
 import io.ktor.client.plugins.ClientRequestException
 import io.ktor.http.HttpStatusCode
-import me.capcom.smsgateway.data.entities.MessageWithRecipients
 import me.capcom.smsgateway.domain.EntitySource
 import me.capcom.smsgateway.domain.MessageContent
+import me.capcom.smsgateway.domain.ProcessingState
 import me.capcom.smsgateway.helpers.SubscriptionsHelper
+import me.capcom.smsgateway.modules.device.DeviceService
 import me.capcom.smsgateway.modules.events.EventBus
 import me.capcom.smsgateway.modules.gateway.events.DeviceRegisteredEvent
+import me.capcom.smsgateway.modules.gateway.inbox.InboxUploadService
+import me.capcom.smsgateway.modules.gateway.inbox.InboxUploadWorker
 import me.capcom.smsgateway.modules.gateway.services.SSEForegroundService
 import me.capcom.smsgateway.modules.gateway.workers.PullMessagesWorker
 import me.capcom.smsgateway.modules.gateway.workers.SendStateWorker
@@ -22,14 +25,17 @@ import me.capcom.smsgateway.modules.messages.MessagesService
 import me.capcom.smsgateway.modules.messages.MessagesSettings
 import me.capcom.smsgateway.modules.messages.data.SendParams
 import me.capcom.smsgateway.modules.messages.data.SendRequest
+import me.capcom.smsgateway.modules.receiver.data.InboxMessage
 import me.capcom.smsgateway.services.PushService
 import java.util.Date
 
 class GatewayService(
+    private val inboxUploadService: InboxUploadService,
     private val messagesService: MessagesService,
     private val settings: GatewaySettings,
     private val events: EventBus,
     private val logsService: LogsService,
+    private val deviceService: DeviceService,
 ) {
     private val eventsReceiver by lazy { EventsReceiver() }
 
@@ -49,6 +55,7 @@ class GatewayService(
         PullMessagesWorker.start(context)
         WebhooksUpdateWorker.start(context)
         SettingsUpdateWorker.start(context)
+        InboxUploadWorker.start(context)
 
         eventsReceiver.start()
     }
@@ -56,6 +63,7 @@ class GatewayService(
     fun stop(context: Context) {
         eventsReceiver.stop()
 
+        InboxUploadWorker.stop(context)
         SSEForegroundService.stop(context)
         SettingsUpdateWorker.stop(context)
         WebhooksUpdateWorker.stop(context)
@@ -130,10 +138,13 @@ class GatewayService(
         try {
             val deviceName = "${Build.MANUFACTURER}/${Build.PRODUCT}"
             val simCards = SubscriptionsHelper.getActiveSimCards(context)
+            val keyInfo = deviceService.ensureKey()
             val request = GatewayApi.DeviceRegisterRequest(
                 deviceName,
                 pushToken,
                 simCards.toDTO(),
+                publicKey = keyInfo?.publicKeyBase64,
+                keyVersion = keyInfo?.keyVersion,
             )
             val response = when (registerMode) {
                 RegistrationMode.Anonymous -> api.deviceRegister(request, null)
@@ -172,12 +183,15 @@ class GatewayService(
         val settings = settings.registrationInfo ?: return
         val accessToken = settings.token
         val simCards = SubscriptionsHelper.getActiveSimCards(context)
+        val encryptionKey = deviceService.ensureKey()
 
         api.devicePatch(
             accessToken,
             GatewayApi.DevicePatchRequest(
                 settings.id,
                 pushToken,
+                encryptionKey?.publicKeyBase64,
+                encryptionKey?.keyVersion,
                 simCards.toDTO(),
             )
         )
@@ -237,7 +251,42 @@ class GatewayService(
         }
     }
 
-    private fun processMessage(context: Context, message: GatewayApi.Message) {
+    private suspend fun processMessage(context: Context, message: GatewayApi.Message) {
+        when (message.state) {
+            ProcessingState.Pending, null -> {}
+            ProcessingState.Cancelling -> {
+                try {
+                    messagesService.cancelMessage(message.id)
+                } catch (_: IllegalArgumentException) {
+                    // message not found locally — nothing to cancel
+                    sendState(
+                        GatewayApi.MessagePatchRequest(
+                            message.id,
+                            ProcessingState.Cancelled,
+                            message.phoneNumbers.map {
+                                GatewayApi.RecipientState(
+                                    it,
+                                    ProcessingState.Cancelled,
+                                    null
+                                )
+                            },
+                            mapOf(ProcessingState.Cancelled to Date())
+                        )
+                    )
+                    return
+                } catch (_: IllegalStateException) {
+                    // message not in Pending state — already sent/cancelled
+                }
+                return
+            }
+
+            ProcessingState.Cancelled,
+            ProcessingState.Processed,
+            ProcessingState.Sent,
+            ProcessingState.Delivered,
+            ProcessingState.Failed -> return
+        }
+
         val messageState = messagesService.getMessage(message.id)
         if (messageState != null) {
             SendStateWorker.start(context, message.id)
@@ -253,6 +302,17 @@ class GatewayService(
                     is GatewayApi.MessageContent.Data -> MessageContent.Data(
                         content.data,
                         content.port
+                    )
+                    is GatewayApi.MessageContent.Mms -> MessageContent.Mms(
+                        subject = content.subject,
+                        text = content.text,
+                        attachments = content.attachments.map {
+                            MessageContent.Mms.Attachment(
+                                contentType = it.contentType,
+                                name = it.name,
+                                data = it.data,
+                            )
+                        }
                     )
                 },
                 message.phoneNumbers,
@@ -272,27 +332,40 @@ class GatewayService(
     }
 
     internal suspend fun sendState(
-        message: MessageWithRecipients
+        request: GatewayApi.MessagePatchRequest
     ) {
         val settings = settings.registrationInfo ?: return
 
         api.patchMessages(
             settings.token,
-            listOf(
-                GatewayApi.MessagePatchRequest(
-                    message.message.id,
-                    message.message.state,
-                    message.recipients.map {
-                        GatewayApi.RecipientState(
-                            it.phoneNumber,
-                            it.state,
-                            it.error
-                        )
-                    },
-                    message.states.associate { it.state to Date(it.updatedAt) }
-                )
-            )
+            listOf(request)
         )
+    }
+    //endregion
+
+    //region Inbox
+    fun enqueueInboxMessage(
+        context: Context,
+        message: InboxMessage,
+        sender: String,
+        recipient: String?,
+        simNumber: Int?,
+        date: Date,
+    ) {
+        if (!settings.enabled) {
+            return
+        }
+
+        inboxUploadService.enqueue(
+            context, message, sender, recipient, simNumber, date
+        )
+    }
+
+    internal suspend fun uploadInbox(messages: List<GatewayApi.InboxMessage>) {
+        val token = settings.registrationInfo?.token
+            ?: return
+
+        api.postInbox(token, messages)
     }
     //endregion
 

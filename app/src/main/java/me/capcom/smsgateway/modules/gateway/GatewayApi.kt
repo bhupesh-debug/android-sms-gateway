@@ -99,6 +99,14 @@ class GatewayApi(
         }
     }
 
+    suspend fun postInbox(token: String, messages: List<InboxMessage>) {
+        client.post("$baseUrl/inbox") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody(messages)
+        }
+    }
+
     suspend fun getWebHooks(token: String): List<WebHook> {
         return client.get("$baseUrl/webhooks") {
             bearerAuth(token)
@@ -143,6 +151,8 @@ class GatewayApi(
         val name: String,
         val pushToken: String?,
         val simCards: List<SimCard>,
+        val publicKey: String? = null,
+        val keyVersion: Int? = null,
     )
 
     data class DeviceRegisterResponse(
@@ -155,6 +165,8 @@ class GatewayApi(
     data class DevicePatchRequest(
         val id: String,
         val pushToken: String?,
+        val publicKey: String?,
+        val keyVersion: Int?,
         val simCards: List<SimCard>?,
     )
 
@@ -185,6 +197,25 @@ class GatewayApi(
             val data: String,
             val port: UShort,
         ) : MessageContent()
+
+        class Mms(
+            val subject: String?,
+            val text: String?,
+            // Gson can leave this null when the field is omitted (text-only
+            // MMS), despite the non-null Kotlin type. Normalize via the
+            // public accessor below so callers never see null.
+            @SerializedName("attachments")
+            private val _attachments: List<Attachment>?,
+        ) : MessageContent() {
+            val attachments: List<Attachment>
+                get() = _attachments.orEmpty()
+
+            class Attachment(
+                val contentType: String,
+                val name: String?,
+                val data: String,
+            )
+        }
     }
 
     data class Message(
@@ -193,6 +224,8 @@ class GatewayApi(
         val _textMessage: MessageContent.Text?,
         @SerializedName("dataMessage")
         val _dataMessage: MessageContent.Data?,
+        @SerializedName("mmsMessage")
+        val _mmsMessage: MessageContent.Mms?,
         val phoneNumbers: List<String>,
         val simNumber: Int?,
         val withDeliveryReport: Boolean?,
@@ -200,6 +233,7 @@ class GatewayApi(
         val validUntil: Date?,
         val scheduleAt: Date?,
         val priority: Byte?,
+        val state: ProcessingState?,
         val createdAt: Date?,
 
         @SerializedName("message")
@@ -208,6 +242,7 @@ class GatewayApi(
         val content: MessageContent
             get() = this._dataMessage
                 ?: this._textMessage
+                ?: this._mmsMessage
                 ?: _message?.let { MessageContent.Text(it) }
                 ?: throw RuntimeException("Invalid message content")
     }
@@ -242,5 +277,32 @@ class GatewayApi(
         val phoneNumber: String?,
         val carrierName: String?,
         val iccid: String?,
+    )
+
+    object InboxMessageType {
+        const val SMS = "SMS"
+        const val DATA_SMS = "DATA_SMS"
+        const val MMS = "MMS"
+        const val MMS_DOWNLOADED = "MMS_DOWNLOADED"
+    }
+
+    data class InboxMessage(
+        val id: String,
+        val type: String,
+        val sender: String,
+        val recipient: String?,
+        val simNumber: Int?,
+        val content: String,
+        val isEncrypted: Boolean = true,
+        val createdAt: Date,
+        val attachments: List<InboxMessageAttachment>?,
+    )
+
+    data class InboxMessageAttachment(
+        val partId: Long,
+        val contentType: String,
+        val name: String,
+        val size: Long?,
+        val data: String, // base64 of raw bytes
     )
 }

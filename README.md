@@ -1,22 +1,6 @@
 <a name="readme-top"></a>
-<!--
-*** Thanks for checking out the Best-README-Template. If you have a suggestion
-*** that would make this better, please fork the repo and create a pull request
-*** or simply open an issue with the tag "enhancement".
-*** Don't forget to give the project a star!
-*** Thanks again! Now go create something AMAZING! :D
--->
-
-
 
 <!-- PROJECT SHIELDS -->
-<!--
-*** I'm using markdown "reference style" links for readability.
-*** Reference links are enclosed in brackets [ ] instead of parentheses ( ).
-*** See the bottom of this document for the declaration of the reference variables
-*** for contributors-url, forks-url, etc. This is an optional, concise syntax you may use.
-*** https://www.markdownguide.org/basic-syntax/#reference-style-links
--->
 [![Contributors][contributors-shield]][contributors-url]
 [![Forks][forks-shield]][forks-url]
 [![Stargazers][stars-shield]][stars-url]
@@ -40,7 +24,6 @@
     <a href="https://sms-gate.app"><strong>Explore the docs »</strong></a>
     <br />
     <br />
-    <!-- <a href="https://github.com/capcom6/android-sms-gateway">View Demo</a> -->
     <a href="https://github.com/capcom6/android-sms-gateway/issues">Report Bug</a>
     ·
     <a href="https://github.com/capcom6/android-sms-gateway/issues">Request Feature</a>
@@ -59,6 +42,7 @@
   - [Prerequisites](#prerequisites)
     - [Permissions](#permissions)
   - [Installation from APK](#installation-from-apk)
+  - [Build from Source](#build-from-source)
 - [Getting Started](#getting-started)
   - [Local Server](#local-server)
   - [Cloud Server](#cloud-server)
@@ -95,6 +79,15 @@ SMS Gateway turns your Android smartphone into an SMS gateway. It's a lightweigh
 - 🔔 **Real-time incoming message notifications:** Receive instant SMS and MMS notifications via webhooks.
 - 📖 **Read received messages:** Access [previously received messages](https://docs.sms-gate.app/features/reading-messages/) via the same webhooks used for real-time notifications.
 - 📎 **MMS download notifications:** Receive webhook notifications when MMS messages are fully downloaded, including message body and attachments.
+- 📤 **Send MMS messages via API:** Send multimedia messages (images, audio, video, files) with an optional subject and text body.
+- 📦 **Batch webhook events:** Receive batched webhook deliveries when multiple messages arrive at once, reducing the number of requests.
+- 🛑 **Cancel pending messages:** Cancel queued messages before they are sent.
+- 🔍 **Message filtering:** Filter the messages list by state (pending, sent, delivered, failed, etc.) and type to find messages quickly.
+- ⏳ **Send rate limiting:** Restrict the number of messages sent per period (e.g., per 30 minutes) to avoid operator throttling.
+- ⏰ **Message scheduling:** Schedule messages for future delivery using the optional `scheduleAt` field (it must be a future timestamp).
+- 🖼️ **Send and receive MMS with payloads:** Send images, audio, video, and other media as MMS with inline or URL-referenced attachments. Received attachments are persisted locally and exposed via the API. See [`docs/MMS.md`](docs/MMS.md).
+- 🔍 **Message filtering:** Filter messages by state (pending, sent, delivered, failed) and type (SMS, MMS, Data SMS) in the app's message list.
+- 📊 **Webhook queue diagnostics:** View and manage queued webhooks via a diagnostic screen in the app settings.
 
 🔒 Security and Privacy:
 
@@ -105,7 +98,9 @@ SMS Gateway turns your Android smartphone into an SMS gateway. It's a lightweigh
 
 - 💳 **Multiple SIM card support:** Supports devices with [multiple SIM cards](https://docs.sms-gate.app/features/multi-sim/).
 - 📱📱 **Multiple device support:** Connect [multiple devices](https://docs.sms-gate.app/features/multi-device/) to the same account with Cloud or Private server. Messages sent via the server are distributed across all connected devices.
-- 💾 **Data SMS support:** Send and receive binary [data payloads](https://docs.sms-gate.app/features/data-sms.md) via SMS for IoT commands, encrypted messages, and other specialized use cases.
+- 💾 **Data SMS support:** Send and receive binary [data payloads](https://docs.sms-gate.app/features/data-sms/) via SMS for IoT commands, encrypted messages, and other specialized use cases.
+- 🕐 **Working hours scheduling:** Restrict message delivery to configurable time windows, automatically pausing the queue outside of them
+- 🔭 **Webhook queue diagnostics:** Inspect the webhook delivery queue in-app to see pending deliveries, retries, and their status.
 
 🔌 Integration:
 
@@ -172,6 +167,38 @@ To use the application, you need to grant the following permissions:
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
+### Build from Source
+
+Building from source requires JDK 17 (required by Android Gradle Plugin 8.1.2) and the Android SDK — the project compiles against SDK 33. The SDK location is read from `local.properties` (created automatically by Android Studio) or the `ANDROID_HOME` environment variable. The Gradle wrapper (Gradle 8.0) is included in the repository.
+
+1. Provide `app/google-services.json`. This file is not committed (see `.gitignore`); CI injects it from a secret, so local builds need their own Firebase configuration file.
+2. For the signed variants (`release` and `insecure`), provide a keystore at `app/keystore.jks` (also not committed) and export the signing variables documented in [`.env.example`](.env.example):
+
+    ```sh
+    cp .env.example .env
+    # fill in your values, then:
+    set -a; source .env; set +a
+    ```
+
+3. Run the build:
+
+    ```sh
+    ./gradlew test             # run unit tests
+    ./gradlew assembleDebug    # debug build, signed with the default debug keystore
+    ./gradlew assembleInsecure # insecure development build, signed with the release keystore
+    ./gradlew assembleRelease  # secure release build, signed with the release keystore
+    ./gradlew bundleRelease    # release App Bundle (.aab)
+    ```
+
+| Build type      | Description                                                                                                                           |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `debug`         | Development build with the strict network security config, signed with the default debug keystore.                                    |
+| `debugInsecure` | Debuggable build that allows cleartext traffic, signed with the default debug keystore.                                               |
+| `insecure`      | Development and testing build with cleartext traffic allowed, signed with the release keystore. **Never use in public environments.** |
+| `release`       | Production build with strict security configurations, signed with the release keystore.                                               |
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
 <!-- GETTING STARTED -->
 ## Getting Started
 
@@ -207,6 +234,19 @@ This mode is ideal for sending messages from a local network.
       send --phones '+19162255887,+19162255888' 'Hello, doctors!'
     ```
 
+    To send an MMS message, use the `mmsMessage` field with one or more Base64-encoded attachments:
+
+    ```sh
+    curl -X POST -u <username>:<password> \
+      -H "Content-Type: application/json" \
+      -d '{ "mmsMessage": { "subject": "Hello", "text": "See the photo", "attachments": [ { "contentType": "image/jpeg", "name": "photo.jpg", "data": "<base64-encoded-bytes>" } ] }, "phoneNumbers": ["+19162255887"] }' \
+      http://<device_local_ip>:8080/message
+    ```
+
+    *Note*: The `data` field must contain Base64-encoded bytes. The app must be set as the device's default SMS app for reliable MMS sending on most carriers.
+
+The full API reference is available as interactive Swagger documentation at `http://<device_local_ip>:8080/docs`.
+
 ### Cloud Server
 
 <div align="center">
@@ -237,22 +277,30 @@ Use the cloud server mode when dealing with dynamic or shared device IP addresse
 
 For further privacy, you can deploy your own private server. See the [Private Server](https://sms-gate.app/getting-started/private-server/) section for more details.
 
+When connected to the cloud server, received messages (SMS, Data SMS, and MMS) are automatically uploaded to the server for centralized access.
+
 ### Webhooks
 
 Use webhooks to receive notifications for messaging events (e.g., incoming SMS and MMS).
 
 #### Supported Events
 
-| Event               | Description                                                                 |
-| ------------------- | --------------------------------------------------------------------------- |
-| `sms:received`      | Triggered when an SMS message is received                                   |
-| `sms:sent`          | Triggered when an SMS message is sent                                       |
-| `sms:delivered`     | Triggered when an SMS message is delivered                                  |
-| `sms:failed`        | Triggered when an SMS message fails to send                                 |
-| `sms:data-received` | Triggered when a data SMS is received                                       |
-| `mms:received`      | Triggered when an MMS notification is received (before download)            |
-| `mms:downloaded`    | Triggered when an MMS message is fully downloaded with body and attachments |
-| `system:ping`       | Periodic heartbeat event                                                    |
+| Event                     | Description                                                                 |
+| ------------------------- | --------------------------------------------------------------------------- |
+| `sms:received`            | Triggered when an SMS message is received                                   |
+| `sms:batch:received`      | Triggered when multiple SMS messages are received at once (batched)         |
+| `sms:sent`                | Triggered when an SMS message is sent                                       |
+| `sms:delivered`           | Triggered when an SMS message is delivered                                  |
+| `sms:failed`              | Triggered when an SMS message fails to send                                 |
+| `sms:cancelled`           | Triggered when a pending SMS message is cancelled                           |
+| `sms:data-received`       | Triggered when a data SMS is received                                       |
+| `sms:batch:data-received` | Triggered when multiple data SMS messages are received at once (batched)    |
+| `mms:received`            | Triggered when an MMS notification is received (before download)            |
+| `mms:batch:received`      | Triggered when multiple MMS notifications are received at once (batched)    |
+| `mms:downloaded`          | Triggered when an MMS message is fully downloaded with body and attachments |
+| `mms:batch:downloaded`    | Triggered when multiple MMS messages are fully downloaded (batched)         |
+| `app:started`             | Triggered when the app is started, with the list of active SIM cards        |
+| `system:ping`             | Periodic heartbeat event                                                    |
 
 #### Setting Up Webhooks
 
@@ -305,10 +353,11 @@ For cloud mode the process is similar, simply change the URL to https://api.sms-
 - [x] Add functionality to modify user credentials.
 - [x] Introduce option to adjust the local server port.
 - [x] Send notifications to an external server when the status of a message changes.
-- [ ] Incorporate scheduling capabilities for dispatching messages at specific times.
+- [x] Incorporate scheduling capabilities for dispatching messages at specific times.
 - [ ] Implement region-based restrictions to prevent international SMS.
-- [ ] Provide an API endpoint to retrieve the list of available SIM cards on the device.
+- [x] Provide an API endpoint to retrieve the list of available SIM cards on the device.
 - [x] Include detailed error messages in responses and logs.
+- [x] Send MMS messages via the API.
 
 See the [open issues](https://github.com/capcom6/android-sms-gateway/issues) for a full list of proposed features (and known issues).
 
@@ -363,24 +412,6 @@ If you have any questions or suggestions, feel free to reach out through the fol
 
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-
-
-<!-- ACKNOWLEDGMENTS -->
-<!-- ## Acknowledgments
-
-Use this space to list resources you find helpful and would like to give credit to. I've included a few of my favorites to kick things off!
-
-* [Choose an Open Source License](https://choosealicense.com)
-* [GitHub Emoji Cheat Sheet](https://www.webpagefx.com/tools/emoji-cheat-sheet)
-* [Malven's Flexbox Cheatsheet](https://flexbox.malven.co/)
-* [Malven's Grid Cheatsheet](https://grid.malven.co/)
-* [Img Shields](https://shields.io)
-* [GitHub Pages](https://pages.github.com)
-* [Font Awesome](https://fontawesome.com)
-* [React Icons](https://react-icons.github.io/react-icons/search)
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p> -->
 
 
 

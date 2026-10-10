@@ -21,10 +21,12 @@ class EventsReceiver : BroadcastReceiver(), KoinComponent {
     private val logsService: LogsService by inject()
 
     override fun onReceive(context: Context, intent: Intent) {
+        val pendingResult = goAsync()
+        val capturedResultCode = pendingResult.resultCode
+
         scope.launch {
             try {
-                messagesService
-                    .processStateIntent(intent, resultCode)
+                messagesService.processStateIntent(intent, capturedResultCode)
             } catch (e: Throwable) {
                 logsService.insert(
                     LogEntry.Priority.ERROR,
@@ -32,8 +34,9 @@ class EventsReceiver : BroadcastReceiver(), KoinComponent {
                     "Can't process message state intent",
                     intent.toLogContext() + e.toLogContext()
                 )
+            } finally {
+                pendingResult.finish()
             }
-
         }
     }
 
@@ -45,7 +48,11 @@ class EventsReceiver : BroadcastReceiver(), KoinComponent {
 
         const val ACTION_SENT = "me.capcom.smsgateway.ACTION_SENT"
         const val ACTION_DELIVERED = "me.capcom.smsgateway.ACTION_DELIVERED"
+        const val ACTION_MMS_SENT = "me.capcom.smsgateway.ACTION_MMS_SENT"
 
+        const val EXTRA_MESSAGE_ID = "messageId"
+        const val EXTRA_PDU_PATH = "pduPath"
+        
         private fun getInstance(): EventsReceiver {
             return INSTANCE ?: EventsReceiver().also { INSTANCE = it }
         }
@@ -53,8 +60,10 @@ class EventsReceiver : BroadcastReceiver(), KoinComponent {
         fun register(context: Context) {
             context.registerReceiver(
                 getInstance(),
-                IntentFilter(ACTION_SENT)
-                    .apply { addAction(ACTION_DELIVERED) }
+                IntentFilter(ACTION_SENT).apply {
+                    addAction(ACTION_DELIVERED)
+                    addAction(ACTION_MMS_SENT)
+                }
             )
         }
     }

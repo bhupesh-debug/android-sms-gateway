@@ -1,12 +1,14 @@
 package me.capcom.smsgateway.modules.localserver.routes
 
 import android.content.Context
+import android.util.Log
 import com.aventrix.jnanoid.jnanoid.NanoIdUtils
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
+import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
@@ -14,6 +16,7 @@ import me.capcom.smsgateway.data.entities.MessageWithRecipients
 import me.capcom.smsgateway.domain.EntitySource
 import me.capcom.smsgateway.domain.MessageContent
 import me.capcom.smsgateway.domain.ProcessingState
+import me.capcom.smsgateway.domain.WebhookDelivery
 import me.capcom.smsgateway.helpers.DateTimeParser
 import me.capcom.smsgateway.modules.incoming.db.IncomingMessageType
 import me.capcom.smsgateway.modules.localserver.LocalServerSettings
@@ -21,6 +24,8 @@ import me.capcom.smsgateway.modules.localserver.auth.AuthScopes
 import me.capcom.smsgateway.modules.localserver.auth.requireScope
 import me.capcom.smsgateway.modules.localserver.domain.InboxRefreshRequest
 import me.capcom.smsgateway.modules.localserver.domain.messages.DataMessage
+import me.capcom.smsgateway.modules.localserver.domain.messages.MessageSort
+import me.capcom.smsgateway.modules.localserver.domain.messages.MmsMessage
 import me.capcom.smsgateway.modules.localserver.domain.messages.PostMessageRequest
 import me.capcom.smsgateway.modules.localserver.domain.messages.TextMessage
 import me.capcom.smsgateway.modules.messages.MessagesService
@@ -63,6 +68,7 @@ class MessagesRoutes(
                     return@get
                 }
             } ?: false
+            val sort = MessageSort.parse(call.request.queryParameters["sort"])
 
             // Parse date range parameters
             val from = call.request.queryParameters["from"]?.let {
@@ -103,7 +109,15 @@ class MessagesRoutes(
 
             // Get messages with pagination
             val messages = try {
-                messagesService.selectMessages(EntitySource.Local, state, from, to, limit, offset)
+                messagesService.selectMessages(
+                    EntitySource.Local,
+                    state,
+                    from,
+                    to,
+                    limit,
+                    offset,
+                    sort.toDomain()
+                )
             } catch (e: Throwable) {
                 call.respond(
                     HttpStatusCode.InternalServerError,
@@ -151,6 +165,20 @@ class MessagesRoutes(
                     MessageContent.Data(
                         request.dataMessage.data,
                         request.dataMessage.port.toUShort()
+                    )
+                }
+
+                request.mmsMessage != null -> {
+                    MessageContent.Mms(
+                        subject = request.mmsMessage.subject,
+                        text = request.mmsMessage.text,
+                        attachments = request.mmsMessage.attachments.map {
+                            MessageContent.Mms.Attachment(
+                                contentType = it.contentType,
+                                name = it.name,
+                                data = it.data,
+                            )
+                        }
                     )
                 }
 
@@ -217,6 +245,35 @@ class MessagesRoutes(
                 )
             )
         }
+        delete("{id}") {
+            if (!requireScope(AuthScopes.MessagesCancel)) return@delete
+            val id = call.parameters["id"]
+                ?: return@delete call.respond(HttpStatusCode.BadRequest)
+
+            val message = try {
+                messagesService.cancelMessage(id)
+            } catch (e: IllegalArgumentException) {
+                Log.w("MessagesRoutes", "Cancel message $id not found", e)
+                return@delete call.respond(HttpStatusCode.NotFound)
+            } catch (e: IllegalStateException) {
+                return@delete call.respond(
+                    HttpStatusCode.BadRequest,
+                    mapOf("message" to e.message)
+                )
+            } catch (e: Throwable) {
+                return@delete call.respond(
+                    HttpStatusCode.InternalServerError,
+                    mapOf("message" to e.message)
+                )
+            }
+
+            call.respond(
+                message.toDomain(
+                    requireNotNull(settings.deviceId),
+                    includeContent = false
+                )
+            )
+        }
     }
 
     private fun Route.inboxRoutes(context: Context) {
@@ -228,7 +285,9 @@ class MessagesRoutes(
                     context = context,
                     period = request.period,
                     messageTypes = request.messageTypes ?: setOf(IncomingMessageType.SMS),
-                    triggerWebhooks = request.triggerWebhooks ?: true,
+                    request.webhookDelivery
+                        ?: (if (request.triggerWebhooks == false) WebhookDelivery.Disabled else null)
+                        ?: WebhookDelivery.Individual,
                 )
                 call.respond(HttpStatusCode.Accepted)
             } catch (e: Exception) {
@@ -239,8 +298,9 @@ class MessagesRoutes(
             }
         }
     }
+}
 
-    private fun MessageWithRecipients.toDomain(
+internal fun MessageWithRecipients.toDomain(
         deviceId: String,
         includeContent: Boolean = false
     ): me.capcom.smsgateway.modules.localserver.domain.messages.Message {
@@ -248,6 +308,7 @@ class MessagesRoutes(
             id = message.id,
             deviceId = deviceId,
             state = message.state,
+            createdAt = Date(message.createdAt),
             isHashed = false,
             isEncrypted = message.isEncrypted,
             textMessage = when (includeContent) {
@@ -267,6 +328,23 @@ class MessagesRoutes(
 
                 else -> null
             },
+            mmsMessage = when (includeContent) {
+                true -> message.mmsContent?.let { mms ->
+                    MmsMessage(
+                        subject = mms.subject,
+                        text = mms.text,
+                        attachments = mms.attachments.map {
+                            MmsMessage.Attachment(
+                                contentType = it.contentType,
+                                name = it.name,
+                                data = it.data,
+                            )
+                        }
+                    )
+                }
+
+                else -> null
+            },
             hashedMessage = null,
             recipients = recipients.map {
                 me.capcom.smsgateway.modules.localserver.domain.messages.Message.Recipient(
@@ -281,4 +359,3 @@ class MessagesRoutes(
             scheduleAt = message.scheduleAt,
         )
     }
-}

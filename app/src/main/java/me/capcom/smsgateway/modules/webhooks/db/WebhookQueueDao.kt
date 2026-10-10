@@ -1,5 +1,6 @@
 package me.capcom.smsgateway.modules.webhooks.db
 
+import androidx.lifecycle.LiveData
 import androidx.room.*
 
 /**
@@ -21,10 +22,16 @@ interface WebhookQueueDao {
     suspend fun getById(id: String): WebhookQueueEntity
 
     /**
-     * Check if there are any scheduled webhook events.
+     * Check if there are any due webhook events (where next_attempt has passed).
      */
-    @Query("SELECT COUNT(*) FROM webhook_queue WHERE status IN ('pending', 'failed')")
-    suspend fun scheduledWebhooksCount(): Long
+    @Query("SELECT COUNT(*) FROM webhook_queue WHERE status IN ('pending', 'failed') AND next_attempt <= :currentTime")
+    suspend fun dueWebhooksCount(currentTime: Long = System.currentTimeMillis()): Long
+
+    /**
+     * Get the minimum next_attempt time for all pending/failed webhooks.
+     */
+    @Query("SELECT MIN(next_attempt) FROM webhook_queue WHERE status IN ('pending', 'failed')")
+    suspend fun getNextAttemptTime(): Long?
 
     /**
      * Get all pending webhook events ordered by next attempt time.
@@ -103,6 +110,16 @@ interface WebhookQueueDao {
         id: String,
         error: String,
     )
+
+    /**
+     * Get the most recent webhook queue entries for a single status (or all when null),
+     * bounded by limit. Filtering happens at the SQL level; no unbounded query.
+     */
+    @Query(
+        "SELECT * FROM webhook_queue WHERE (:status IS NULL OR status = :status) " +
+            "ORDER BY created_at DESC LIMIT :limit"
+    )
+    fun selectLastFiltered(limit: Int, status: String? = null): LiveData<List<WebhookQueueEntity>>
 
     /**
      * Get queue statistics.
